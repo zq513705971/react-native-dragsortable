@@ -50,5 +50,5 @@ npm i react-native-dragsortable --save
 - **onDragEnd** : PropTypes.func,
 - **renderItem** : PropTypes.func.isRequired, //render item view
 
-###Thanks
+### Thanks
 - [mochixuan](https://github.com/mochixuan/react-native-drag-sort)
