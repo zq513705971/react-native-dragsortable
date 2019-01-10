@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
-import { Animated, Dimensions, Easing, PanResponder, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Easing, PanResponder, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 
 let window = Dimensions.get('window');
 
@@ -12,44 +12,43 @@ export default class DragSortableView extends Component {
         sortRefs: new Map(),
         defaultZIndex: 0,
         maxScale: 1.1,
-        minOpacity: 0.8,
-        longPressDuration: 1000
+        minOpacity: 0.8
     }
 
     constructor(props) {
         super(props);
 
-        this.state = {
-            data: undefined,
-            totalWidth: 0,
-            itemSize: 0,
-            columnCount: 0,
-            totalHeight: 0,
-            rowsCount: 0,
-            touchZIndex: 0
-        };
-    }
-
-    componentWillMount() {
-        var { columnCount, maxSize, data } = this.props;
-        var total = data.length;
+        var { columnCount, maxSize } = this.props;
 
         var totalWidth = window.width;
         if (totalWidth / columnCount > maxSize) {
             columnCount = Math.floor(totalWidth / maxSize);
         }
-        var rowsCount = parseInt(total / columnCount);
-        if (total % columnCount != 0)
-            rowsCount = rowsCount + 1;
-        var totalCount = rowsCount * columnCount;
         var itemSize = totalWidth / columnCount;
+        this.state = {
+            data: undefined,
+            totalWidth: totalWidth,
+            itemSize: itemSize,
+            columnCount: columnCount,
+            totalHeight: 0,
+            rowsCount: 0,
+            touchZIndex: 0,
+            grid: []
+        };
+        this.isMovePanResponder = false;
+    }
 
+    update = (data) => {
+        var { itemSize, columnCount } = this.state;
+        var total = data.length;
+        var rowsCount = Math.ceil(total / columnCount);
+        var totalCount = rowsCount * columnCount;
+        var totalHeight = rowsCount * itemSize;
 
         var grid = [];
         const newDatas = data.map((item, index) => {
             const newData = {};
-            const left = (index % columnCount) * itemSize;
-            const top = parseInt((index / columnCount)) * itemSize;
+            const { left, top } = this._getPosition(index);
 
             newData.data = item;
             newData.index = index;
@@ -63,7 +62,7 @@ export default class DragSortableView extends Component {
             newData.area = [top, left + itemSize, top + itemSize, left];
             grid.push({
                 index: index,
-                area: [top, left + itemSize, top + itemSize, left],
+                area: [...newData.area],
                 saveIndex: index
             });
             newData.position = new Animated.ValueXY({
@@ -72,52 +71,106 @@ export default class DragSortableView extends Component {
             });
             newData.scaleValue = new Animated.Value(1);
             return newData;
-        })
+        });
 
         this.setState({
             grid: grid,
             data: newDatas,
-            itemSize: itemSize,
-            totalWidth: totalWidth,
             rowsCount: rowsCount,
-            columnCount: columnCount,
-            totalHeight: rowsCount * itemSize,
+            totalHeight: totalHeight,
             touchZIndex: totalCount
         });
+    }
+
+    componentWillReceiveProps(nextProps) {
+        if (nextProps.data.length != this.props.data.length) {
+            this.update(nextProps.data);
+        }
+    }
+
+    componentWillMount() {
+        this.update(this.props.data);
 
         this._panResponder = PanResponder.create({
-            onStartShouldSetPanResponder: this._handleStartShouldSetPanResponder,
-            onStartShouldSetPanResponderCapture: (evt, gestureState) => {
-                this.isMovePanResponder = false
-                return false
-            },
-            onMoveShouldSetPanResponder: (evt, gestureState) => this.isMovePanResponder,
-            onMoveShouldSetPanResponderCapture: (evt, gestureState) => this.isMovePanResponder,
+            onStartShouldSetPanResponder: this._onStartShouldSetPanResponder,
+            onStartShouldSetPanResponderCapture: (e, gestureState) => false,
 
-            onPanResponderGrant: (evt, gestureState) => { },
-            onPanResponderMove: (evt, gestureState) => this._touchMove(evt, gestureState),
-            onPanResponderRelease: (evt, gestureState) => this._touchEnd(evt),
+            onMoveShouldSetPanResponder: (e, gestureState) => this.isMovePanResponder,
+            onMoveShouldSetPanResponderCapture: (e, gestureState) => this.isMovePanResponder,
 
-            onPanResponderTerminationRequest: (evt, gestureState) => false,
-            onShouldBlockNativeResponder: (evt, gestureState) => false,
+            onPanResponderGrant: this._onPanResponderGrant,
+            onPanResponderMove: this._onPanResponderMove,
+            onPanResponderRelease: this._onPanResponderRelease,
+
+            onPanResponderTerminationRequest: (e, gestureState) => false,
+            onShouldBlockNativeResponder: (e, gestureState) => false
         })
     }
 
-    _handleStartShouldSetPanResponder = (e, gestureState) => {
+    _onStartShouldSetPanResponder = (e, gestureState) => {
         // 避免双击，与上次点击在500ms以内时不处理点击事件
         const tick = new Date().getTime();
         if (tick - this._touchTimeStamp < 500) {
             return false;
         }
         this._touchTimeStamp = tick;
-        return true;
+        return false;
     }
 
-    componentWillUnmount() {
-        this.pressTimer && clearTimeout(this.pressTimer);
+    _onPanResponderGrant = (e, gestureState) => {
+
     }
 
-    _touchMove = (nativeEvent, gestureState) => {
+    _onPanResponderRelease = (e, gestureState) => {
+        this._touchEnd();
+    }
+
+    _touchEnd = () => {
+        const { data } = this.state;
+        const { defaultZIndex } = this.props;
+
+        this.isMovePanResponder = false;
+        if (this.touchCurItem) {
+            var itemData = data[this.touchCurItem.index];
+            Animated.timing(
+                itemData.scaleValue,
+                {
+                    toValue: 1,
+                    easing: Easing.out(Easing.quad),
+                    duration: 0,
+                    //useNativeDriver: true
+                }
+            ).start((data) => {
+                //console.log(data.finished);
+            });
+            this.touchCurItem.ref.setNativeProps({
+                style: {
+                    zIndex: defaultZIndex,
+                }
+            });
+
+            this.props.onDataChange && this.props.onDataChange(this._getData());
+            this.props.onDragEnd && this.props.onDragEnd(this.touchCurItem.index, this.touchCurItem.moveToIndex);
+
+            this._changePosition(this.touchCurItem.index, this.touchCurItem.moveToIndex);
+            this.touchCurItem = undefined;
+        }
+    }
+
+    _getData = () => {
+        const { grid, data } = this.state;
+        var items = [];
+        grid.forEach(item => {
+            var obj = data.find(_item => {
+                return _item.index == item.saveIndex;
+            });
+            if (obj)
+                items.push(obj.data);
+        });
+        return items;
+    }
+
+    _onPanResponderMove = (nativeEvent, gestureState) => {
         const { totalWidth, itemSize, totalHeight, grid, data, touchZIndex } = this.state;
 
         if (this.touchCurItem) {
@@ -187,156 +240,6 @@ export default class DragSortableView extends Component {
         }
     }
 
-    /**
-     * 根据中心位置计算区域序号
-     */
-    _getAreaSpan = (x, y) => {
-        const { grid } = this.state;
-        var data = grid.find(item => {
-            let areaData = item.area;
-            return y >= areaData[0] && y < areaData[2] && x >= areaData[3] && x < areaData[1];
-        });
-        if (data)
-            return data;
-        return grid[grid.length - 1];
-    }
-
-    _tempMoveItemViews = () => {
-        const { grid } = this.state;
-        const { sortRefs } = this.props;
-        grid.forEach(item => {
-            let index = item.saveIndex;
-            let ref = sortRefs.get(index);
-            let newPos = this._getPosition(item.index);
-            var { left, top } = newPos;
-            ref.setNativeProps({
-                style: {
-                    left: left,
-                    top: top
-                }
-            })
-        });
-    };
-
-    _getPosition = (index) => {
-        const { itemSize, columnCount } = this.state;
-
-        const left = (index % columnCount) * itemSize;
-        const top = parseInt((index / columnCount)) * itemSize;
-        return { left, top };
-    }
-
-    _resetSaveIndex = () => {
-        const { grid } = this.state;
-        grid.forEach(item => {
-            item.saveIndex = item.index;
-        });
-    };
-
-    _touchStart = (touchIndex) => {
-        const { data } = this.state;
-        const { sortable, sortRefs } = this.props;
-
-        if (!sortable)
-            return;
-
-        var itemData = data[touchIndex];
-        if (sortRefs.has(touchIndex)) {
-            //重置saveIndex
-            this._resetSaveIndex();
-            this.touchCurItem = {
-                data: itemData,
-                ref: sortRefs.get(touchIndex),
-                index: touchIndex,
-                originLeft: itemData.originLeft,
-                originTop: itemData.originTop,
-                moveToIndex: touchIndex,
-                startIndex: touchIndex,
-                endIndex: touchIndex
-            };
-            //console.log("DragStart");
-            this.isMovePanResponder = true;
-            this.props.onDragStart && this.props.onDragStart(touchIndex);
-        }
-    }
-
-    _onPressIn = (touchIndex) => {
-        const { data } = this.state;
-        const { longPressDuration, maxScale } = this.props;
-
-        var itemData = data[touchIndex];
-
-        this.pressTimer && clearTimeout(this.pressTimer);
-        this.pressTimer = setTimeout(() => {
-            Animated.timing(
-                itemData.scaleValue,
-                {
-                    toValue: maxScale,
-                    easing: Easing.out(Easing.quad),
-                    duration: 10,
-                    //useNativeDriver: true
-                }
-            ).start((data) => {
-                if (data.finished) {
-                    this._touchStart(touchIndex);
-                }
-            });
-        }, longPressDuration);
-        //模拟点击效果
-        Animated.sequence([
-            Animated.timing(
-                itemData.scaleValue,
-                {
-                    toValue: maxScale,
-                    easing: Easing.out(Easing.quad),
-                    duration: 50,
-                    //useNativeDriver: true
-                }
-            ),
-            Animated.timing(
-                itemData.scaleValue,
-                {
-                    toValue: 1,
-                    easing: Easing.out(Easing.quad),
-                    duration: 10,
-                    //useNativeDriver: true
-                }
-            )
-        ]).start();
-    }
-
-    _touchEnd = () => {
-        const { data } = this.state;
-        const { defaultZIndex } = this.props;
-
-        this.pressTimer && clearTimeout(this.pressTimer);
-        this.isMovePanResponder = false;
-        if (this.touchCurItem) {
-            var itemData = data[this.touchCurItem.index];
-            Animated.timing(
-                itemData.scaleValue,
-                {
-                    toValue: 1,
-                    easing: Easing.out(Easing.quad),
-                    duration: 0,
-                    //useNativeDriver: true
-                }
-            ).start((data) => {
-                //console.log(data.finished);
-            });
-            this.touchCurItem.ref.setNativeProps({
-                style: {
-                    zIndex: defaultZIndex,
-                }
-            });
-            if (this.props.onDragEnd) {
-                this.props.onDragEnd(this.touchCurItem.index, this.touchCurItem.moveToIndex);
-            }
-            this._changePosition(this.touchCurItem.index, this.touchCurItem.moveToIndex);
-            this.touchCurItem = undefined;
-        }
-    }
-
     _changePosition = (startIndex, endIndex) => {
         const { itemSize, data } = this.state;
 
@@ -399,10 +302,90 @@ export default class DragSortableView extends Component {
         })
     }
 
-    _onPressOut = (touchIndex) => {
-        this.pressTimer && clearTimeout(this.pressTimer);
-        if (!this.isMovePanResponder)
-            this._touchEnd();
+    /**
+     * 根据中心位置计算区域序号
+     */
+    _getAreaSpan = (x, y) => {
+        const { grid } = this.state;
+        var data = grid.find(item => {
+            let areaData = item.area;
+            return y >= areaData[0] && y < areaData[2] && x >= areaData[3] && x < areaData[1];
+        });
+        if (data)
+            return data;
+        return grid[grid.length - 1];
+    }
+
+    _tempMoveItemViews = () => {
+        const { grid } = this.state;
+        const { sortRefs } = this.props;
+        grid.forEach(item => {
+            let index = item.saveIndex;
+            let ref = sortRefs.get(index);
+            let newPos = this._getPosition(item.index);
+            var { left, top } = newPos;
+            ref.setNativeProps({
+                style: {
+                    left: left,
+                    top: top
+                }
+            })
+        });
+    };
+
+    _resetSaveIndex = () => {
+        const { grid } = this.state;
+        grid.forEach(item => {
+            item.saveIndex = item.index;
+        });
+    };
+
+    _touchStart = (touchIndex) => {
+        const { data } = this.state;
+        const { sortable, sortRefs, maxScale } = this.props;
+
+        if (!sortable)
+            return;
+
+        var itemData = data[touchIndex];
+        if (sortRefs.has(touchIndex)) {
+            //重置saveIndex
+            this._resetSaveIndex();
+            this.touchCurItem = {
+                data: itemData,
+                ref: sortRefs.get(touchIndex),
+                index: touchIndex,
+                originLeft: itemData.originLeft,
+                originTop: itemData.originTop,
+                moveToIndex: touchIndex,
+                startIndex: touchIndex,
+                endIndex: touchIndex
+            };
+            Animated.timing(
+                itemData.scaleValue,
+                {
+                    toValue: maxScale,
+                    easing: Easing.out(Easing.quad),
+                    duration: 10,
+                    //useNativeDriver: true
+                }
+            ).start((data) => {
+                if (data.finished) {
+
+                }
+            });
+            //itemData.scaleValue.setValue(maxScale);
+            this.props.onDragStart && this.props.onDragStart(touchIndex);
+            this.isMovePanResponder = true;
+        }
+    }
+
+    _getPosition = (index) => {
+        const { itemSize, columnCount } = this.state;
+
+        const left = (index % columnCount) * itemSize;
+        const top = Math.floor((index / columnCount)) * itemSize;
+        return { left, top };
     }
 
     render() {
@@ -434,23 +417,13 @@ export default class DragSortableView extends Component {
                                     transform: [
                                         { scale: item.scaleValue }
                                     ]
-                                }]}>
+                                }]}
+                            >
                                 <TouchableOpacity
                                     style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
                                     activeOpacity={1}
                                     onLongPress={() => {
-                                        //this.startTouch(index);
-                                    }}
-                                    onPressIn={() => {
-                                        //console.log("onPressIn");
-                                        this._onPressIn(item.index);
-                                    }}
-                                    onPressOut={() => {
-                                        //console.log("onPressOut");
-                                        this._onPressOut(item.index);
-                                    }}
-                                    onPress={() => {
-                                        this.props.onClickItem && this.props.onClickItem(item.data, item.index);
+                                        this._touchStart(item.index);
                                     }}>
                                     {this.props.renderItem(item.data, item.index)}
                                 </TouchableOpacity>
@@ -470,7 +443,7 @@ DragSortableView.propsTypes = {
 
     sortable: PropTypes.bool,
 
-    onClickItem: PropTypes.func,
+    onDataChange: PropTypes.func,
     onDragStart: PropTypes.func,
     onDragEnd: PropTypes.func,
     renderItem: PropTypes.func.isRequired,
@@ -482,8 +455,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
     },
     item: {
-        position: 'absolute',
-        //borderWidth: 1,
-        //borderColor: 'red'
+        position: 'absolute'
     },
 })

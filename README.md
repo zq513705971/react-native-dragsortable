@@ -31,8 +31,8 @@ npm i react-native-dragsortable --save
 			scrollEnabled: true
 		})
 	}}
-	onClickItem={(item, index) => {
-		console.log(item);
+	onDataChange={(items) => {
+		//items sorted data list
 	}}
 	renderItem={(item, index) => {
 		return this._renderItem(item, index);
@@ -45,7 +45,7 @@ npm i react-native-dragsortable --save
 - **maxSize**: PropTypes.number.isRequired //item width/height
 - **columnCount**: PropTypes.number.isRequired, //default row item count,if the totalWidth/columnCount(**totalWidth=Dimensions.get('window').width**) larger than maxSize,this columnCount value will be **Math.floor(totalWidth/maxSize)** 
 - **sortable**: PropTypes.bool, //default allow
-- **onClickItem**: PropTypes.func, //click
+- **onDataChange**: PropTypes.func, //click
 - **onDragStart**: PropTypes.func, 
 - **onDragEnd** : PropTypes.func,
 - **renderItem** : PropTypes.func.isRequired, //render item view
