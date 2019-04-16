@@ -1,179 +1,122 @@
 import React, { Component } from 'react';
-import PropTypes from 'prop-types';
 import { Animated, Dimensions, Easing, PanResponder, StyleSheet, TouchableOpacity, View, Text } from 'react-native';
 
-let window = Dimensions.get('window');
-
-export default class DragSortableView extends Component {
-    static defaultProps = {
-        columnCount: 4,
-        maxSize: 80,
-        sortable: true,
-        sortRefs: new Map(),
-        defaultZIndex: 0,
-        maxScale: 1.1,
-        minOpacity: 0.8
+const DragSortableView = (props) => {
+    let window = Dimensions.get('window');
+    let {
+        columnCount = 4,
+        maxSize = 100,
+        sortable = true,
+        defaultZIndex = 0,
+        maxScale = 1.1,
+        minOpacity = 0.8,
+        totalWidth = window.width,
+        data = [],
+        onEndDrag = undefined,
+        onDragStart = undefined,
+        onStartMove = undefined,
+        renderItem
+    } = props;
+    if (totalWidth / columnCount > maxSize) {
+        columnCount = Math.ceil(totalWidth / maxSize);
     }
+    let sortRefs = new Map();
+    /*每块大小 */
+    let itemSize = totalWidth / columnCount;
+    //块数量
+    let totalLength = data.length;
+    //行数
+    let rowsCount = Math.ceil(totalLength / columnCount);
+    //总块数
+    let totalCount = rowsCount * columnCount;
+    //总高度
+    let totalHeight = rowsCount * itemSize;
+    let touchZIndex = totalCount;
+    let isMovePanResponder = false;
+    let granted = false;
 
-    constructor(props) {
-        super(props);
+    /**
+     * 计算所在位置
+     * @param {*} index 
+     */
+    const _getPosition = (index) => {
+        const left = (index % columnCount) * itemSize;
+        const top = Math.floor((index / columnCount)) * itemSize;
+        return { left, top };
+    };
 
-        var { columnCount, maxSize } = this.props;
+    //正在拖拽的项
+    let touchCurItem = undefined;
+    let grid = [];
+    let newDatas = data.map((item, index) => {
+        const newData = {};
+        const { left, top } = _getPosition(index);
 
-        var totalWidth = window.width;
-        if (totalWidth / columnCount > maxSize) {
-            columnCount = Math.floor(totalWidth / maxSize);
-        }
-        var itemSize = totalWidth / columnCount;
-        this.state = {
-            data: undefined,
-            totalWidth: totalWidth,
-            itemSize: itemSize,
-            columnCount: columnCount,
-            totalHeight: 0,
-            rowsCount: 0,
-            touchZIndex: 0,
-            grid: []
-        };
-        this.isMovePanResponder = false;
-    }
-
-    update = (data) => {
-        var { itemSize, columnCount } = this.state;
-        var total = data.length;
-        var rowsCount = Math.ceil(total / columnCount);
-        var totalCount = rowsCount * columnCount;
-        var totalHeight = rowsCount * itemSize;
-
-        var grid = [];
-        const newDatas = data.map((item, index) => {
-            const newData = {};
-            const { left, top } = this._getPosition(index);
-
-            newData.data = item;
-            newData.index = index;
-            newData.originIndex = index;
-            newData.originLeft = left;
-            newData.originTop = top;
-            newData.centerPos = new Animated.ValueXY({
-                x: parseInt(left + itemSize / 2),
-                y: parseInt(top + itemSize / 2)
-            });
-            newData.area = [top, left + itemSize, top + itemSize, left];
-            grid.push({
-                index: index,
-                area: [...newData.area],
-                saveIndex: index
-            });
-            newData.position = new Animated.ValueXY({
-                x: left,
-                y: top
-            });
-            newData.scaleValue = new Animated.Value(1);
-            return newData;
+        newData.data = item;
+        newData.index = index;
+        newData.originIndex = index;
+        newData.originLeft = left;
+        newData.originTop = top;
+        newData.centerPos = new Animated.ValueXY({
+            x: parseInt(left + itemSize / 2),
+            y: parseInt(top + itemSize / 2)
         });
-
-        this.setState({
-            grid: grid,
-            data: newDatas,
-            rowsCount: rowsCount,
-            totalHeight: totalHeight,
-            touchZIndex: totalCount
+        newData.area = [top, left + itemSize, top + itemSize, left];
+        grid.push({
+            index: index,
+            area: [...newData.area],
+            saveIndex: index//初始化保存序号
         });
+        newData.position = new Animated.ValueXY({
+            x: left,
+            y: top
+        });
+        newData.scaleValue = new Animated.Value(1);
+        return newData;
+    });
+
+    /**
+    * 根据中心位置计算区域序号
+    */
+    const _getAreaSpan = (x, y) => {
+        var data = grid.find(item => {
+            let areaData = item.area;
+            return y >= areaData[0] && y < areaData[2] && x >= areaData[3] && x < areaData[1];
+        });
+        if (data)
+            return data;
+        return grid[grid.length - 1];
     }
 
-    componentWillReceiveProps(nextProps) {
-        if (nextProps.data.length != this.props.data.length) {
-            this.update(nextProps.data);
-        }
-    }
+    const _tempMoveItemViews = () => {
+        grid.forEach(item => {
+            let index = item.saveIndex;
+            let ref = sortRefs.get(index);
+            let newPos = _getPosition(item.index);
+            var { left, top } = newPos;
 
-    componentWillMount() {
-        this.update(this.props.data);
+            ref && ref.setNativeProps({
+                style: {
+                    left: left,
+                    top: top
+                }
+            })
+        });
+    };
 
-        this._panResponder = PanResponder.create({
-            onStartShouldSetPanResponder: this._onStartShouldSetPanResponder,
-            onStartShouldSetPanResponderCapture: (e, gestureState) => false,
-
-            onMoveShouldSetPanResponder: (e, gestureState) => this.isMovePanResponder,
-            onMoveShouldSetPanResponderCapture: (e, gestureState) => this.isMovePanResponder,
-
-            onPanResponderGrant: this._onPanResponderGrant,
-            onPanResponderMove: this._onPanResponderMove,
-            onPanResponderRelease: this._onPanResponderRelease,
-
-            onPanResponderTerminationRequest: (e, gestureState) => false,
-            onShouldBlockNativeResponder: (e, gestureState) => false
-        })
-    }
-
-    _onStartShouldSetPanResponder = (e, gestureState) => {
+    let _touchTimeStamp = 0;
+    const _onStartShouldSetPanResponder = () => {
         // 避免双击，与上次点击在500ms以内时不处理点击事件
         const tick = new Date().getTime();
-        if (tick - this._touchTimeStamp < 500) {
+        if (tick - _touchTimeStamp < 500) {
             return false;
         }
-        this._touchTimeStamp = tick;
+        _touchTimeStamp = tick;
         return false;
     }
 
-    _onPanResponderGrant = (e, gestureState) => {
-
-    }
-
-    _onPanResponderRelease = (e, gestureState) => {
-        this._touchEnd();
-    }
-
-    _touchEnd = () => {
-        const { data } = this.state;
-        const { defaultZIndex } = this.props;
-
-        this.isMovePanResponder = false;
-        if (this.touchCurItem) {
-            var itemData = data[this.touchCurItem.index];
-            Animated.timing(
-                itemData.scaleValue,
-                {
-                    toValue: 1,
-                    easing: Easing.out(Easing.quad),
-                    duration: 0,
-                    //useNativeDriver: true
-                }
-            ).start((data) => {
-                //console.log(data.finished);
-            });
-            this.touchCurItem.ref.setNativeProps({
-                style: {
-                    zIndex: defaultZIndex,
-                }
-            });
-
-            this.props.onDataChange && this.props.onDataChange(this._getData());
-            this.props.onDragEnd && this.props.onDragEnd(this.touchCurItem.index, this.touchCurItem.moveToIndex);
-
-            this._changePosition(this.touchCurItem.index, this.touchCurItem.moveToIndex);
-            this.touchCurItem = undefined;
-        }
-    }
-
-    _getData = () => {
-        const { grid, data } = this.state;
-        var items = [];
-        grid.forEach(item => {
-            var obj = data.find(_item => {
-                return _item.index == item.saveIndex;
-            });
-            if (obj)
-                items.push(obj.data);
-        });
-        return items;
-    }
-
-    _onPanResponderMove = (nativeEvent, gestureState) => {
-        const { totalWidth, itemSize, totalHeight, grid, data, touchZIndex } = this.state;
-
-        if (this.touchCurItem) {
+    const _onPanResponderMove = (nativeEvent, gestureState) => {
+        if (touchCurItem) {
             let dx = gestureState.dx;
             let dy = gestureState.dy;
 
@@ -181,42 +124,42 @@ export default class DragSortableView extends Component {
             const maxHeight = totalHeight - itemSize;
 
             //出界后取最大或最小值
-            if (this.touchCurItem.originLeft + dx < 0) {
-                dx = -this.touchCurItem.originLeft;
-            } else if (this.touchCurItem.originLeft + dx > maxWidth) {
-                dx = maxWidth - this.touchCurItem.originLeft;
+            if (touchCurItem.originLeft + dx < 0) {
+                dx = -touchCurItem.originLeft;
+            } else if (touchCurItem.originLeft + dx > maxWidth) {
+                dx = maxWidth - touchCurItem.originLeft;
             }
-            if (this.touchCurItem.originTop + dy < 0) {
-                dy = -this.touchCurItem.originTop;
-            } else if (this.touchCurItem.originTop + dy > maxHeight) {
-                dy = maxHeight - this.touchCurItem.originTop;
+            if (touchCurItem.originTop + dy < 0) {
+                dy = -touchCurItem.originTop;
+            } else if (touchCurItem.originTop + dy > maxHeight) {
+                dy = maxHeight - touchCurItem.originTop;
             }
-            let left = this.touchCurItem.originLeft + dx;
-            let top = this.touchCurItem.originTop + dy;
+            let left = touchCurItem.originLeft + dx;
+            let top = touchCurItem.originTop + dy;
             let centerX = left + itemSize / 2;
             let centerY = top + itemSize / 2;
 
-            this.touchCurItem.ref.setNativeProps({
+            touchCurItem.ref.setNativeProps({
                 style: {
                     zIndex: touchZIndex,
                 }
             })
 
-            var itemData = this.touchCurItem.data;
+            var itemData = touchCurItem.data;
             itemData.position.setValue({
                 x: left,
                 y: top,
             })
 
-            var areaData = this._getAreaSpan(centerX, centerY);
-            var moveToIndex = this.touchCurItem.moveToIndex;
+            var areaData = _getAreaSpan(centerX, centerY);
+            var moveToIndex = touchCurItem.moveToIndex;
             if (!areaData)
                 moveToIndex = data.length - 1;
             else
                 moveToIndex = areaData.index;
 
-            if (this.touchCurItem.moveToIndex != moveToIndex) {
-                this._resetSaveIndex();
+            if (touchCurItem.moveToIndex != moveToIndex) {
+                _resetSaveIndex();
                 //将目标区域index清空
                 areaData.saveIndex = -1;
 
@@ -224,7 +167,7 @@ export default class DragSortableView extends Component {
                 grid.forEach((item, index) => {
                     if (item.saveIndex != -1) {
                         for (let dataIndex = tempIndex; dataIndex < data.length; dataIndex++) {
-                            const element = data[dataIndex];
+                            const element = newDatas[dataIndex];
                             if (element.originIndex != itemData.originIndex) {
                                 item.saveIndex = element.index;
                                 tempIndex = dataIndex + 1;
@@ -234,18 +177,16 @@ export default class DragSortableView extends Component {
                     }
                 });
                 areaData.saveIndex = itemData.index;
-                this._tempMoveItemViews();
-                this.touchCurItem.moveToIndex = moveToIndex;
+                _tempMoveItemViews();
+                touchCurItem.moveToIndex = moveToIndex;
             }
         }
     }
 
-    _changePosition = (startIndex, endIndex) => {
-        const { itemSize, data } = this.state;
-
-        const curItem = data[startIndex];
+    const _changePosition = (startIndex, endIndex) => {
+        const curItem = newDatas[startIndex];
         if (startIndex == endIndex) {
-            data[startIndex].position.setValue({
+            curItem.position.setValue({
                 x: curItem.originLeft,
                 y: curItem.originTop,
             });
@@ -260,16 +201,14 @@ export default class DragSortableView extends Component {
             offset = -1;
         }
         //移动起始、结束间各个块的index
-        data.forEach((item, index) => {
+        newDatas.forEach((item, index) => {
             if ((offset < 0 && item.index > minIndex && item.index <= maxIndex) || (offset > 0 && item.index >= minIndex && item.index < maxIndex)) {
                 item.index += offset;
             }
             if (item.originIndex == curItem.originIndex) {
                 item.index = endIndex;
             }
-        });
-        const newDatas = [...data].map((item, index) => {
-            let newPos = this._getPosition(item.index);
+            let newPos = _getPosition(item.index);
             item.originLeft = newPos.left;
             item.originTop = newPos.top;
             item.position = new Animated.ValueXY({
@@ -278,175 +217,162 @@ export default class DragSortableView extends Component {
             })
             //重新进行区域计算
             item.area = [newPos.top, newPos.left + itemSize, newPos.top + itemSize, newPos.left];
-            return item;
         });
-
         newDatas.sort((a, b) => {
             return a.index > b.index ? 1 : -1;
         });
-
-        this.setState({
-            data: newDatas
-        }, () => {
-            //防止RN不绘制开头和结尾
-            const startItem = data[startIndex];
-            startItem.position.setValue({
-                x: startItem.originLeft,
-                y: startItem.originTop,
-            });
-            const endItem = data[endIndex];
-            endItem.position.setValue({
-                x: endItem.originLeft,
-                y: endItem.originTop,
-            });
-        })
     }
 
-    /**
-     * 根据中心位置计算区域序号
-     */
-    _getAreaSpan = (x, y) => {
-        const { grid } = this.state;
-        var data = grid.find(item => {
-            let areaData = item.area;
-            return y >= areaData[0] && y < areaData[2] && x >= areaData[3] && x < areaData[1];
-        });
-        if (data)
-            return data;
-        return grid[grid.length - 1];
-    }
+    const _touchEnd = () => {
+        isMovePanResponder = false;
+        if (touchCurItem) {
+            var itemData = newDatas[touchCurItem.index];
 
-    _tempMoveItemViews = () => {
-        const { grid } = this.state;
-        const { sortRefs } = this.props;
-        grid.forEach(item => {
-            let index = item.saveIndex;
-            let ref = sortRefs.get(index);
-            let newPos = this._getPosition(item.index);
-            var { left, top } = newPos;
-            ref.setNativeProps({
-                style: {
-                    left: left,
-                    top: top
+            Animated.timing(
+                itemData.scaleValue,
+                {
+                    toValue: 1,
+                    easing: Easing.out(Easing.quad),
+                    duration: 0,
+                    //useNativeDriver: true
                 }
-            })
-        });
-    };
+            ).start((data) => {
+                //console.log(data.finished);
+            });
+            touchCurItem.ref.setNativeProps({
+                style: {
+                    zIndex: defaultZIndex,
+                }
+            });
 
-    _resetSaveIndex = () => {
-        const { grid } = this.state;
+            _changePosition(touchCurItem.index, touchCurItem.moveToIndex);
+
+            let newList = [];
+            newDatas.forEach((item, index) => {
+                newList.push(item.data);
+            });
+            onEndDrag && onEndDrag(newList);
+
+            touchCurItem = undefined;
+        }
+    }
+
+    const _onPanResponderRelease = () => {
+        isMovePanResponder = false;
+        _touchEnd();
+    }
+
+    const _resetSaveIndex = () => {
         grid.forEach(item => {
             item.saveIndex = item.index;
         });
     };
 
-    _touchStart = (touchIndex) => {
-        const { data } = this.state;
-        const { sortable, sortRefs, maxScale } = this.props;
-
+    const _touchStart = (touchIndex) => {
         if (!sortable)
             return;
-
-        var itemData = data[touchIndex];
+        var touchItemData = newDatas[touchIndex];
         if (sortRefs.has(touchIndex)) {
-            //重置saveIndex
-            this._resetSaveIndex();
-            this.touchCurItem = {
-                data: itemData,
+            _resetSaveIndex();
+
+            touchCurItem = {
+                data: touchItemData,
                 ref: sortRefs.get(touchIndex),
                 index: touchIndex,
-                originLeft: itemData.originLeft,
-                originTop: itemData.originTop,
+                originLeft: touchItemData.originLeft,
+                originTop: touchItemData.originTop,
                 moveToIndex: touchIndex,
                 startIndex: touchIndex,
                 endIndex: touchIndex
-            };
+            }
             Animated.timing(
-                itemData.scaleValue,
+                touchItemData.scaleValue,
                 {
                     toValue: maxScale,
                     easing: Easing.out(Easing.quad),
                     duration: 10,
                     //useNativeDriver: true
                 }
-            ).start((data) => {
-                if (data.finished) {
+            ).start((result) => {
+                if (result.finished) {
 
                 }
             });
-            //itemData.scaleValue.setValue(maxScale);
-            this.props.onDragStart && this.props.onDragStart(touchIndex);
-            this.isMovePanResponder = true;
+            onDragStart && onDragStart(touchIndex);
+            isMovePanResponder = true;
         }
     }
 
-    _getPosition = (index) => {
-        const { itemSize, columnCount } = this.state;
+    const _panResponder = PanResponder.create({
+        onStartShouldSetPanResponder: _onStartShouldSetPanResponder,
+        onStartShouldSetPanResponderCapture: (e, gestureState) => false,
 
-        const left = (index % columnCount) * itemSize;
-        const top = Math.floor((index / columnCount)) * itemSize;
-        return { left, top };
+        onMoveShouldSetPanResponder: (e, gestureState) => isMovePanResponder,
+        onMoveShouldSetPanResponderCapture: (e, gestureState) => isMovePanResponder,
+
+        onPanResponderMove: _onPanResponderMove,
+        onPanResponderRelease: _onPanResponderRelease,
+
+        onPanResponderTerminationRequest: (e, gestureState) => false,
+        onShouldBlockNativeResponder: (e, gestureState) => false,
+        onPanResponderGrant: () => {
+            onStartMove && onStartMove();
+            granted = true;
+        }
+    })
+
+    const _guid = () => {
+        function S4() {
+            return (((1 + Math.random()) * 0x10000) | 0).toString(16).substring(1);
+        }
+        return (S4() + S4() + "-" + S4() + "-" + S4() + "-" + S4() + "-" + S4() + S4() + S4());
     }
 
-    render() {
-        const { totalWidth, itemSize, totalHeight, data } = this.state;
-        const { sortRefs, defaultZIndex, maxScale, minOpacity } = this.props;
-
-        return (
-            <View style={[styles.container, {
-                width: totalWidth,
-                height: totalHeight,
-            }]} >
-                {
-                    data.map((item, index) => {
-                        return (
-                            <Animated.View
-                                key={item.originIndex}
-                                ref={(ref) => sortRefs.set(item.index, ref)}
-                                {...this._panResponder.panHandlers}
-                                style={[styles.item, {
-                                    zIndex: defaultZIndex,
-                                    width: itemSize,
-                                    height: itemSize,
-                                    left: item.position.x,
-                                    top: item.position.y,
-                                    opacity: item.scaleValue.interpolate({
-                                        inputRange: [1, maxScale],
-                                        outputRange: [1, minOpacity]
-                                    }),
-                                    transform: [
-                                        { scale: item.scaleValue }
-                                    ]
-                                }]}
-                            >
-                                <TouchableOpacity
-                                    style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
-                                    activeOpacity={1}
-                                    onLongPress={() => {
-                                        this._touchStart(item.index);
-                                    }}>
-                                    {this.props.renderItem(item.data, item.index)}
-                                </TouchableOpacity>
-                            </Animated.View>
-                        )
-                    })
-                }
-            </View>
-        )
-    }
-}
-
-DragSortableView.propsTypes = {
-    data: PropTypes.array.isRequired,
-    maxSize: PropTypes.number.isRequired,
-    columnCount: PropTypes.number.isRequired,
-
-    sortable: PropTypes.bool,
-
-    onDataChange: PropTypes.func,
-    onDragStart: PropTypes.func,
-    onDragEnd: PropTypes.func,
-    renderItem: PropTypes.func.isRequired,
+    return <View style={[styles.container, {
+        width: totalWidth,
+        height: totalHeight,
+    }]} >
+        {
+            newDatas.map((item, index) => {
+                return (
+                    <Animated.View
+                        key={_guid()}
+                        ref={(ref) => sortRefs.set(item.originIndex, ref)}
+                        {..._panResponder.panHandlers}
+                        style={[styles.item, {
+                            zIndex: defaultZIndex,
+                            width: itemSize,
+                            height: itemSize,
+                            left: item.position.x,
+                            top: item.position.y,
+                            opacity: item.scaleValue.interpolate({
+                                inputRange: [1, maxScale],
+                                outputRange: [1, minOpacity]
+                            }),
+                            transform: [
+                                { scale: item.scaleValue }
+                            ]
+                        }]}
+                    >
+                        <TouchableOpacity
+                            style={{
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                            activeOpacity={1}
+                            onPressOut={() => {
+                                !granted && _touchEnd();
+                            }}
+                            onLongPress={() => {
+                                _touchStart(item.index);
+                            }}>
+                            {renderItem && renderItem(item.data, item.index)}
+                        </TouchableOpacity>
+                    </Animated.View>
+                )
+            })
+        }
+    </View>;
 }
 
 const styles = StyleSheet.create({
@@ -458,3 +384,5 @@ const styles = StyleSheet.create({
         position: 'absolute'
     },
 })
+
+export default DragSortableView;
