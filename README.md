@@ -15,29 +15,34 @@ npm i react-native-dragsortable --save
 ```
 
 ### Example
-- [ScrollView](https://github.com/zq513705971/react-native-dragsortable/blob/master/src/example/ScrollPage.js)
+```
+import DragSortableView from 'DragSortableView';
+```
 
 ``` react
+this.state = {
+	list:[]
+}
+
+const { list } = this.state;
 <DragSortableView
-	data={this.state.data}
-	onDragStart={(startIndex) => {
+	columnCount={4}
+    onStartMove={() => {
+		console.log("onStartMove");
+	}}
+	onDragStart={() => {
 		console.log("onDragStart")
+	}}
+	onEndDrag={(items) => {
+		console.log("onEndDrag", items)
 		this.setState({
-			scrollEnabled: false
-		})
+			list: items
+		});
 	}}
-    onDragEnd={(startIndex) => {
-		this.setState({
-			scrollEnabled: true
-		})
+	renderItem={(item) => {
+		// return item component
 	}}
-	onDataChange={(items) => {
-		//items sorted data list
-	}}
-	renderItem={(item, index) => {
-		return this._renderItem(item, index);
-	}}
-/>
+	data={list} />
 ```
 
 ### API
@@ -45,7 +50,7 @@ npm i react-native-dragsortable --save
 - **maxSize**: PropTypes.number.isRequired //item width/height
 - **columnCount**: PropTypes.number.isRequired, //default row item count,if the totalWidth/columnCount(**totalWidth=Dimensions.get('window').width**) larger than maxSize,this columnCount value will be **Math.floor(totalWidth/maxSize)** 
 - **sortable**: PropTypes.bool, //default allow
-- **onDataChange**: PropTypes.func, //click
+- **onStartMove**: PropTypes.func, //click
 - **onDragStart**: PropTypes.func, 
 - **onDragEnd** : PropTypes.func,
 - **renderItem** : PropTypes.func.isRequired, //render item view
